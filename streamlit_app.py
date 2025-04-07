@@ -1,11 +1,13 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import chardet
 from io import BytesIO
 
-# Конфигурация страницы (должна быть первой!)
-st.set_page_config(layout="wide")
+# Конфигурация страницы
+st.set_page_config(layout="wide", page_title="Демография Орловской области")
 
 # --- Загрузка данных ---
 @st.cache_data
@@ -31,7 +33,7 @@ def load_data(file_name):
 try:
     ch_1_6 = load_data('Ch_1_6.csv')      # Дети 1-6 лет
     ch_3_18 = load_data('Ch_3_18.csv')    # Дети 3-18 лет
-    ch_5_18 = load_data('Ch_5_18.csv')    # Дети 5-18 лет
+    ch_5_18 = load_data('Ch-5-18.csv')    # Дети 5-18 лет
     pop_3_79 = load_data('Pop_3_79.csv')  # Население 3-79 лет
     rpop = load_data('RPop.csv')          # Среднегодовая численность
 except Exception as e:
@@ -40,11 +42,11 @@ except Exception as e:
 
 # Словарь тем (название: (датафрейм, цвет))
 data_dict = {
-    "Дети 1-6 лет": (ch_1_6, "skyblue"),
-    "Дети 3-18 лет": (ch_3_18, "salmon"),
-    "Дети 5-18 лет": (ch_5_18, "gold"),
-    "Население 3-79 лет": (pop_3_79, "lightgreen"),
-    "Среднегодовая численность": (rpop, "violet")
+    "Дети 1-6 лет": (ch_1_6, "#1f77b4"),
+    "Дети 3-18 лет": (ch_3_18, "#ff7f0e"),
+    "Дети 5-18 лет": (ch_5_18, "#2ca02c"),
+    "Население 3-79 лет": (pop_3_79, "#d62728"),
+    "Среднегодовая численность": (rpop, "#9467bd")
 }
 
 # --- Боковая панель ---
@@ -70,65 +72,94 @@ with st.sidebar:
     )
 
 # --- Основной интерфейс ---
-st.title(f"Демографические показатели: {selected_location}")
+st.title(f"📊 Демографические показатели: {selected_location}")
 
-# 1. Линейный график динамики
-st.subheader("Динамика численности")
-fig, ax = plt.subplots(figsize=(12, 5))
-for topic in selected_topics:
-    df, color = data_dict[topic]
-    location_data = df[df['Name'] == selected_location]
-    years = [str(year) for year in range(2019, 2025)]
-    ax.plot(years, location_data[years].values.flatten(), 
-            label=topic, color=color, marker='o', linewidth=2)
-ax.set_xlabel("Год")
-ax.set_ylabel("Численность (чел.)")
-ax.legend()
-ax.grid(True, linestyle='--', alpha=0.7)
-st.pyplot(fig)
-
-# 2. Топ-5 населенных пунктов
-st.subheader(f"Топ-5 населённых пунктов ({selected_year} год)")
-col1, col2 = st.columns(2)
-for topic in selected_topics:
-    df, color = data_dict[topic]
-    top5 = df.nlargest(5, selected_year)[['Name', selected_year]]
+# 1. Интерактивный линейный график динамики
+if selected_topics:
+    st.subheader("Динамика численности")
+    fig = go.Figure()
     
-    with col1:
-        st.markdown(f"**{topic}**")
-        st.dataframe(top5.set_index('Name'), height=200)
+    for topic in selected_topics:
+        df, color = data_dict[topic]
+        location_data = df[df['Name'] == selected_location]
+        years = [str(year) for year in range(2019, 2025)]
+        values = location_data[years].values.flatten()
+        
+        fig.add_trace(go.Scatter(
+            x=years,
+            y=values,
+            name=topic,
+            line=dict(color=color, width=3),
+            mode='lines+markers',
+            hovertemplate="<b>%{x}</b><br>%{y:,} чел.<extra></extra>"
+        ))
     
-    with col2:
-        fig_bar = plt.figure(figsize=(8, 4))
-        plt.bar(top5['Name'], top5[selected_year], color=color)
-        plt.xticks(rotation=45)
-        plt.title(f"Топ-5: {topic}")
-        st.pyplot(fig_bar)
-
-# 3. Экспорт данных (исправленная версия)
-st.subheader("Экспорт данных")
-for topic in selected_topics:
-    df, _ = data_dict[topic]
-    
-    # Вариант 1: Экспорт в CSV (работает без доп. библиотек)
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label=f"Скачать {topic} (CSV)",
-        data=csv,
-        file_name=f"{topic.replace(' ', '_')}.csv",
-        mime="text/csv"
+    fig.update_layout(
+        xaxis_title="Год",
+        yaxis_title="Численность (чел.)",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        height=500,
+        template="plotly_white"
     )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # 2. Интерактивный Топ-5
+    st.subheader(f"Топ-5 населённых пунктов ({selected_year} год)")
     
-    # Вариант 2: Экспорт в Excel (требует openpyxl)
-    try:
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name=topic[:30])
-        st.download_button(
-            label=f"Скачать {topic} (Excel)",
-            data=output.getvalue(),
-            file_name=f"{topic.replace(' ', '_')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    for topic in selected_topics:
+        df, color = data_dict[topic]
+        top5 = df.nlargest(5, selected_year)[['Name', selected_year]].sort_values(selected_year, ascending=True)
+        
+        fig = px.bar(
+            top5,
+            x=selected_year,
+            y='Name',
+            orientation='h',
+            title=f"{topic}",
+            color_discrete_sequence=[color],
+            labels={'Name': '', selected_year: 'Численность (чел.)'},
+            height=300
         )
-    except Exception as e:
-        st.warning(f"Не удалось создать Excel-файл. Убедитесь, что openpyxl установлен")
+        
+        fig.update_traces(
+            hovertemplate="<b>%{y}</b><br>%{x:,} чел.<extra></extra>",
+            texttemplate='%{x:,}',
+            textposition='outside'
+        )
+        
+        fig.update_layout(showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
+
+    # 3. Экспорт данных
+    st.subheader("📤 Экспорт данных")
+    export_col1, export_col2 = st.columns(2)
+    
+    for topic in selected_topics:
+        df, _ = data_dict[topic]
+        
+        with export_col1:
+            # Экспорт в CSV
+            csv = df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8')
+            st.download_button(
+                label=f"📄 {topic} (CSV)",
+                data=csv,
+                file_name=f"{topic.replace(' ', '_')}.csv",
+                mime="text/csv",
+                key=f"csv_{topic}"
+            )
+        
+        with export_col2:
+            # Экспорт в Excel
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name=topic[:30])
+            st.download_button(
+                label=f"💾 {topic} (Excel)",
+                data=output.getvalue(),
+                file_name=f"{topic.replace(' ', '_')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"excel_{topic}"
+            )
+else:
+    st.warning("Пожалуйста, выберите хотя бы одну категорию населения")
