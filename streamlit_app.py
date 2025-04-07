@@ -2,8 +2,9 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import chardet
+from io import BytesIO
 
-# Конфигурация страницы (должна быть первой!)
+# Конфигурация страницы
 st.set_page_config(layout="wide")
 
 # --- Загрузка данных ---
@@ -19,118 +20,73 @@ def load_data(file_name):
         except:
             df = pd.read_csv(file_name, sep=';', encoding='cp1251')
     
-    # Очистка данных
     df = df.rename(columns=lambda x: x.strip())
     if 'Наименование муниципального образования' in df.columns:
         df = df.rename(columns={'Наименование муниципального образования': 'Name'})
     df['Name'] = df['Name'].str.strip()
     return df
 
-# Загрузка всех файлов
+# Загрузка файлов
 try:
     ch_1_6 = load_data('Ch_1_6.csv')      # Дети 1-6 лет
     ch_3_18 = load_data('Ch_3_18.csv')    # Дети 3-18 лет
-    ch_5_18 = load_data('Ch_5_18.csv')    # Дети 5-18 лет
+    ch_5_18 = load_data('Ch-5-18.csv')    # Дети 5-18 лет
     pop_3_79 = load_data('Pop_3_79.csv')  # Население 3-79 лет
-    rpop = load_data('RPop.csv')          # Среднегодовая численность населения
+    rpop = load_data('RPop.csv')          # Среднегодовая численность
 except Exception as e:
-    st.error(f"Ошибка загрузки данных: {str(e)}")
+    st.error(f"Ошибка загрузки данных: {str(e)}. Проверьте названия файлов!")
     st.stop()
 
-# Словарь тем (название: (датафрейм, описание, цвет))
 data_dict = {
-    "Дети 1-6 лет": (ch_1_6, "Численность детей 1-6 лет", "skyblue"),
-    "Дети 3-18 лет": (ch_3_18, "Численность детей 3-18 лет", "salmon"),
-    "Дети 5-18 лет": (ch_5_18, "Численность детей 5-18 лет", "gold"),
-    "Население 3-79 лет": (pop_3_79, "Численность населения 3-79 лет", "lightgreen"),
-    "Среднегодовая численность": (rpop, "Среднегодовая численность постоянного населения", "violet")
+    "Дети 1-6 лет": (ch_1_6, "skyblue"),
+    "Дети 3-18 лет": (ch_3_18, "salmon"),
+    "Дети 5-18 лет": (ch_5_18, "gold"),
+    "Население 3-79 лет": (pop_3_79, "lightgreen"),
+    "Среднегодовая численность": (rpop, "violet")
 }
 
 # --- Боковая панель ---
 with st.sidebar:
     st.title("Настройки анализа")
-    
-    # Выбор населенного пункта
-    all_locations = ch_1_6['Name'].unique()
-    selected_location = st.selectbox("Населённый пункт:", all_locations, index=0)
-    
-    # Выбор тем (можно несколько)
-    selected_topics = st.multiselect(
-        "Категории населения:",
-        list(data_dict.keys()),
-        default=["Дети 1-6 лет", "Среднегодовая численность"]
-    )
-    
-    if not selected_topics:
-        st.warning("Выберите хотя бы одну категорию!")
-        st.stop()
-    
-    # Фиксированные годы (2019-2024)
-    year_columns = [str(year) for year in range(2019, 2025)]
-    
-    # Выбор диапазона лет
-    year_range = st.slider(
-        "Диапазон лет:",
-        min_value=2019,
-        max_value=2024,
-        value=(2019, 2024)
-    )
-    selected_years = [str(year) for year in range(year_range[0], year_range[1]+1)]
+    selected_location = st.selectbox("Населённый пункт:", ch_1_6['Name'].unique(), index=0)
+    selected_topics = st.multiselect("Категории:", list(data_dict.keys()), default=list(data_dict.keys())[:2])
+    selected_year = st.selectbox("Год для Топ-5:", [str(year) for year in range(2019, 2025)], index=0)
 
 # --- Основной интерфейс ---
 st.title(f"Демография Орловской области: {selected_location}")
 
-# 1. Линейный график
+# 1. Графики динамики
 st.subheader("Динамика численности")
-fig_line, ax_line = plt.subplots(figsize=(12, 5))
+fig, ax = plt.subplots(figsize=(12, 5))
 for topic in selected_topics:
-    df, label, color = data_dict[topic]
-    location_data = df[df['Name'] == selected_location]
-    if not location_data.empty:
-        ax_line.plot(
-            selected_years,
-            location_data[selected_years].values.flatten(),
-            label=label, color=color, marker='o', linewidth=2
-        )
-ax_line.set_xlabel("Год")
-ax_line.set_ylabel("Численность (чел.)")
-ax_line.legend()
-ax_line.grid(True, linestyle='--', alpha=0.7)
-st.pyplot(fig_line)
+    df, color = data_dict[topic]
+    data = df[df['Name'] == selected_location]
+    years = [str(year) for year in range(2019, 2025)]
+    ax.plot(years, data[years].values.flatten(), label=topic, color=color, marker='o')
+ax.legend()
+st.pyplot(fig)
 
-# 2. Столбчатая диаграмма
-st.subheader("Сравнение по годам")
-fig_bar, ax_bar = plt.subplots(figsize=(12, 6))
-
-bar_width = 0.8 / len(selected_topics)  # Ширина столбцов
-opacity = 0.8
-
-for i, topic in enumerate(selected_topics):
-    df, label, color = data_dict[topic]
-    location_data = df[df['Name'] == selected_location]
-    if not location_data.empty:
-        values = location_data[selected_years].values.flatten()
-        positions = [x + i * bar_width for x in range(len(selected_years))]
-        ax_bar.bar(
-            positions, values, bar_width,
-            alpha=opacity, color=color, label=label
-        )
-
-ax_bar.set_xticks([x + bar_width * (len(selected_topics)-1)/2 for x in range(len(selected_years))])
-ax_bar.set_xticklabels(selected_years)
-ax_bar.set_xlabel("Год")
-ax_bar.set_ylabel("Численность (чел.)")
-ax_bar.legend(bbox_to_anchor=(1.05, 1))
-ax_bar.grid(True, axis='y', linestyle='--', alpha=0.7)
-st.pyplot(fig_bar)
-
-# 3. Таблицы с данными
-st.subheader("Детальные данные")
+# 2. Топ-5 населённых пунктов
+st.subheader(f"Топ-5 по категории ({selected_year} год)")
+col1, col2 = st.columns(2)
 for topic in selected_topics:
-    df, label, _ = data_dict[topic]
-    st.markdown(f"**{label}**")
-    st.dataframe(
-        df[df['Name'] == selected_location][['Name'] + selected_years],
-        use_container_width=True,
-        height=120
+    df, _ = data_dict[topic]
+    top5 = df.nlargest(5, selected_year)[['Name', selected_year]]
+    with col1:
+        st.markdown(f"**{topic}**")
+        st.dataframe(top5.set_index('Name'), height=200)
+    with col2:
+        st.bar_chart(top5.set_index('Name'))
+
+# 3. Скачивание данных
+st.subheader("Экспорт данных")
+for topic in selected_topics:
+    df, _ = data_dict[topic]
+    output = BytesIO()
+    df.to_excel(output, index=False)
+    st.download_button(
+        label=f"Скачать {topic} (Excel)",
+        data=output.getvalue(),
+        file_name=f"{topic.replace(' ', '_')}.xlsx",
+        mime="application/vnd.ms-excel"
     )
