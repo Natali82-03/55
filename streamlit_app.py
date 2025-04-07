@@ -33,7 +33,7 @@ def load_data(file_name):
 try:
     ch_1_6 = load_data('Ch_1_6.csv')      # Дети 1-6 лет
     ch_3_18 = load_data('Ch_3_18.csv')    # Дети 3-18 лет
-    ch_5_18 = load_data('Ch-5-18.csv')    # Дети 5-18 лет
+    ch_5_18 = load_data('Ch_5_18.csv')    # Дети 5-18 лет
     pop_3_79 = load_data('Pop_3_79.csv')  # Население 3-79 лет
     rpop = load_data('RPop.csv')          # Среднегодовая численность
 except Exception as e:
